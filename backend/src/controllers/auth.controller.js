@@ -1,7 +1,7 @@
+import { generateToken } from "../lib/utils.js";
 import User from "../models/user.model.js";
 import bcrypt from "bcryptjs";
 import cloudinary from "../lib/cloudinary.js";
-import { generateToken } from "../lib/utils.js";
 
 export const signup = async (req, res) => {
   const { fullName, email, password } = req.body;
@@ -59,7 +59,6 @@ export const login = async (req, res) => {
     }
 
     const isPasswordCorrect = await bcrypt.compare(password, user.password);
-
     if (!isPasswordCorrect) {
       return res.status(400).json({ message: "Invalid credentials" });
     }
@@ -97,16 +96,59 @@ export const updateProfile = async (req, res) => {
       return res.status(400).json({ message: "Profile pic is required" });
     }
 
-    const uploadResponse = await cloudinary.uploader.upload(profilePic);
+    // Validate base64 image format
+    if (!profilePic.startsWith("data:image/")) {
+      return res
+        .status(400)
+        .json({
+          message: "Invalid image format. Please provide a valid base64 image.",
+        });
+    }
+
+    console.log("Uploading to Cloudinary...");
+    const uploadResponse = await cloudinary.uploader.upload(profilePic, {
+      folder: "chat_app_profiles", // Organize uploads in a folder
+      transformation: [
+        { width: 400, height: 400, crop: "fill" }, // Resize and crop to square
+        { quality: "auto", fetch_format: "auto" }, // Optimize quality and format
+      ],
+    });
+
+    console.log("Cloudinary upload successful:", uploadResponse.secure_url);
+
     const updatedUser = await User.findByIdAndUpdate(
       userId,
       { profilePic: uploadResponse.secure_url },
       { new: true }
-    );
+    ).select("-password"); // Don't return password
 
-    res.status(200).json(updatedUser);
+    res.status(200).json({
+      message: "Profile updated successfully",
+      user: {
+        _id: updatedUser._id,
+        fullName: updatedUser.fullName,
+        email: updatedUser.email,
+        profilePic: updatedUser.profilePic,
+      },
+    });
   } catch (error) {
-    console.log("error in update profile:", error);
+    console.log("Error in update profile:", error);
+
+    // Handle specific Cloudinary errors
+    if (error.message.includes("Invalid image file")) {
+      return res
+        .status(400)
+        .json({ message: "Invalid image file. Please upload a valid image." });
+    }
+
+    if (error.message.includes("File size too large")) {
+      return res
+        .status(400)
+        .json({
+          message: "Image file is too large. Please upload a smaller image.",
+        });
+    }
+
     res.status(500).json({ message: "Internal server error" });
   }
 };
