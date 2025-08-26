@@ -1,11 +1,14 @@
 import { useChatStore } from "../store/useChatStore";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { X } from "lucide-react";
 
 import ChatHeader from "./ChatHeader";
 import MessageInput from "./MessageInput";
 import MessageSkeleton from "./skeletons/MessageSkeleton";
+import LinkPreview from "./LinkPreview";
 import { useAuthStore } from "../store/useAuthStore";
 import { formatMessageTime } from "../lib/utils";
+import { detectUrls } from "../lib/linkUtils";
 
 const ChatContainer = () => {
   const {
@@ -13,25 +16,27 @@ const ChatContainer = () => {
     getMessages,
     isMessagesLoading,
     selectedUser,
-    subscribeToMessages,
-    unsubscribeFromMessages,
+    deleteMessage,
   } = useChatStore();
   const { authUser } = useAuthStore();
   const messageEndRef = useRef(null);
+  const [hoveredMessage, setHoveredMessage] = useState(null);
 
   useEffect(() => {
     getMessages(selectedUser._id);
-
-    subscribeToMessages();
-
-    return () => unsubscribeFromMessages();
-  }, [selectedUser._id, getMessages, subscribeToMessages, unsubscribeFromMessages]);
+  }, [selectedUser._id, getMessages]);
 
   useEffect(() => {
     if (messageEndRef.current && messages) {
       messageEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages]);
+
+  const handleDeleteMessage = async (messageId) => {
+    if (window.confirm("Are you sure you want to delete this message?")) {
+      await deleteMessage(messageId);
+    }
+  };
 
   if (isMessagesLoading) {
     return (
@@ -51,35 +56,83 @@ const ChatContainer = () => {
         {messages.map((message) => (
           <div
             key={message._id}
-            className={`chat ${message.senderId === authUser._id ? "chat-end" : "chat-start"}`}
+            className={`flex ${
+              message.senderId === authUser._id
+                ? "justify-end"
+                : "justify-start"
+            }`}
             ref={messageEndRef}
+            onMouseEnter={() => setHoveredMessage(message._id)}
+            onMouseLeave={() => setHoveredMessage(null)}
           >
-            <div className=" chat-image avatar">
-              <div className="size-10 rounded-full border">
-                <img
-                  src={
-                    message.senderId === authUser._id
-                      ? authUser.profilePic || "/avatar.png"
-                      : selectedUser.profilePic || "/avatar.png"
-                  }
-                  alt="profile pic"
-                />
-              </div>
-            </div>
-            <div className="chat-header mb-1">
-              <time className="text-xs opacity-50 ml-1">
-                {formatMessageTime(message.createdAt)}
-              </time>
-            </div>
-            <div className="chat-bubble flex flex-col">
-              {message.image && (
-                <img
-                  src={message.image}
-                  alt="Attachment"
-                  className="sm:max-w-[200px] rounded-md mb-2"
-                />
+            <div className="flex items-end gap-2 max-w-[80%] relative group">
+              {message.senderId !== authUser._id && (
+                <div className="size-8 rounded-full border flex-shrink-0">
+                  <img
+                    src={selectedUser.profilePic || "/avatar.png"}
+                    alt="profile pic"
+                    className="w-full h-full rounded-full object-cover"
+                  />
+                </div>
               )}
-              {message.text && <p>{message.text}</p>}
+
+              <div className="flex flex-col relative">
+                <div className="text-xs opacity-50 mb-1 px-1">
+                  {formatMessageTime(message.createdAt)}
+                </div>
+                <div
+                  className={`
+                  rounded-2xl px-4 py-2 max-w-xs lg:max-w-md break-words relative
+                  ${
+                    message.senderId === authUser._id
+                      ? "bg-primary text-primary-content ml-auto"
+                      : "bg-base-200 text-base-content"
+                  }
+                `}
+                >
+                  {message.image && (
+                    <img
+                      src={message.image}
+                      alt="Attachment"
+                      className="max-w-[200px] rounded-lg mb-2"
+                    />
+                  )}
+                  {message.text && (
+                    <div>
+                      <p className="text-sm">{message.text}</p>
+                      {/* Render link previews for detected URLs */}
+                      {detectUrls(message.text).map((url, index) => (
+                        <LinkPreview
+                          key={`${message._id}-${index}`}
+                          url={url}
+                        />
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Delete button - only show for user's own messages */}
+                  {message.senderId === authUser._id &&
+                    hoveredMessage === message._id && (
+                      <button
+                        onClick={() => handleDeleteMessage(message._id)}
+                        className="absolute -top-2 -right-2 bg-error text-error-content rounded-full p-1 text-xs hover:bg-error/80 transition-colors shadow-lg"
+                        title="Delete message"
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                </div>
+              </div>
+
+              {message.senderId === authUser._id && (
+                <div className="size-8 rounded-full border flex-shrink-0">
+                  <img
+                    src={authUser.profilePic || "/avatar.png"}
+                    alt="profile pic"
+                    className="w-full h-full rounded-full object-cover"
+                  />
+                </div>
+              )}
             </div>
           </div>
         ))}

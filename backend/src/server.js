@@ -8,6 +8,7 @@ import { connectDB } from "./lib/db.js";
 
 import authRoutes from "./routes/auth.route.js";
 import messageRoutes from "./routes/message.route.js";
+import linkPreviewRoutes from "./routes/linkPreview.route.js";
 // import { app, server } from "./lib/socket.js";
 
 dotenv.config();
@@ -36,6 +37,7 @@ app.use(
 
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/messages", messageRoutes);
+app.use("/api/v1/link", linkPreviewRoutes);
 
 // Health check endpoint
 app.get("/", (req, res) => {
