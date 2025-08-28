@@ -98,4 +98,94 @@ export const deleteMessage = async (req, res) => {
   }
 };
 
-// Polling endpoint removed
+export const getMessagesSince = async (req, res) => {
+  try {
+    const { id: userToChatId } = req.params;
+    const { since } = req.query;
+    const myId = req.user._id;
+
+    const SINCE_TS = since ? new Date(parseInt(since)) : null;
+    const TIMEOUT_MS = 25000; // long-poll timeout (~25s)
+    const POLL_INTERVAL_MS = 1500; // check every 1.5s
+    const endTime = Date.now() + TIMEOUT_MS;
+
+    let intervalId;
+    let finished = false;
+
+    const buildQuery = () => {
+      const base = {
+        $or: [
+          { senderId: myId, receiverId: userToChatId },
+          { senderId: userToChatId, receiverId: myId },
+        ],
+      };
+      if (SINCE_TS) {
+        base.createdAt = { $gt: SINCE_TS };
+      }
+      return base;
+    };
+
+    const finalize = (payload) => {
+      if (finished) return;
+      finished = true;
+      if (intervalId) clearInterval(intervalId);
+      res.status(200).json(payload);
+    };
+
+    const checkAndRespond = async () => {
+      try {
+        const messages = await Message.find(buildQuery()).sort({
+          createdAt: 1,
+        });
+        if (messages.length > 0) {
+          return finalize({
+            messages,
+            timestamp: Date.now(),
+            hasNewMessages: true,
+          });
+        }
+        if (Date.now() >= endTime) {
+          return finalize({
+            messages: [],
+            timestamp: Date.now(),
+            hasNewMessages: false,
+          });
+        }
+      } catch (err) {
+        if (!finished) {
+          finished = true;
+          if (intervalId) clearInterval(intervalId);
+          console.log("Error in getMessagesSince controller: ", err.message);
+          return res.status(500).json({ error: "Internal server error" });
+        }
+      }
+    };
+
+    // If no since provided, return immediately (initial sync)
+    if (!SINCE_TS) {
+      const messages = await Message.find(buildQuery()).sort({ createdAt: 1 });
+      return res.status(200).json({
+        messages,
+        timestamp: Date.now(),
+        hasNewMessages: messages.length > 0,
+      });
+    }
+
+    // First immediate check, then interval
+    await checkAndRespond();
+    if (!finished) {
+      intervalId = setInterval(checkAndRespond, POLL_INTERVAL_MS);
+    }
+
+    // Cleanup if client disconnects
+    req.on("close", () => {
+      if (!finished) {
+        finished = true;
+        if (intervalId) clearInterval(intervalId);
+      }
+    });
+  } catch (error) {
+    console.log("Error in getMessagesSince controller: ", error.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};

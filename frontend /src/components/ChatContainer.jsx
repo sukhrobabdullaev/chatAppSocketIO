@@ -17,6 +17,9 @@ const ChatContainer = () => {
     isMessagesLoading,
     selectedUser,
     deleteMessage,
+    startPolling,
+    stopPolling,
+    isPolling,
   } = useChatStore();
   const { authUser } = useAuthStore();
   const messageEndRef = useRef(null);
@@ -25,8 +28,15 @@ const ChatContainer = () => {
   useEffect(() => {
     if (selectedUser?._id) {
       getMessages(selectedUser._id);
+      // Start polling for new messages
+      startPolling(selectedUser._id);
     }
-  }, [selectedUser._id, getMessages]);
+
+    // Cleanup function to stop polling when component unmounts or user changes
+    return () => {
+      stopPolling();
+    };
+  }, [selectedUser._id, getMessages, startPolling, stopPolling]);
 
   useEffect(() => {
     if (messageEndRef.current && messages) {
@@ -54,7 +64,13 @@ const ChatContainer = () => {
     <div className="flex-1 flex flex-col overflow-auto">
       <ChatHeader />
 
-      {/* Polling removed */}
+      {/* Polling status indicator */}
+      {isPolling && (
+        <div className="px-4 py-2 bg-info/10 text-info text-xs flex items-center gap-2">
+          <div className="w-2 h-2 bg-info rounded-full animate-pulse"></div>
+          Polling for new messages...
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((message) => (

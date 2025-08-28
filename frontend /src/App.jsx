@@ -9,7 +9,6 @@ import ProfilePage from "./pages/ProfilePage";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { useAuthStore } from "./store/useAuthStore";
 import { useThemeStore } from "./store/useThemeStore";
-import { useChatStore } from "./store/useChatStore";
 import { useEffect } from "react";
 
 import { Loader } from "lucide-react";
@@ -18,7 +17,6 @@ import { Toaster } from "react-hot-toast";
 const App = () => {
   const { authUser, checkAuth, isCheckingAuth } = useAuthStore();
   const { theme } = useThemeStore();
-  const { stopPolling } = useChatStore();
 
   useEffect(() => {
     checkAuth();
@@ -28,13 +26,6 @@ const App = () => {
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
   }, [theme]);
-
-  // Cleanup polling when app unmounts
-  useEffect(() => {
-    return () => {
-      stopPolling();
-    };
-  }, [stopPolling]);
 
   console.log({ authUser });
 
