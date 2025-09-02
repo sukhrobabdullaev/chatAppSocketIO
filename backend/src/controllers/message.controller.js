@@ -78,9 +78,7 @@ export const deleteMessage = async (req, res) => {
 
     // Check if the user is the sender of the message
     if (message.senderId.toString() !== userId.toString()) {
-      return res
-        .status(403)
-        .json({ error: "You can only delete your own messages" });
+      return res.status(403).json({ error: "You can only delete your own messages" });
     }
 
     // If message has an image, delete it from cloudinary
@@ -98,94 +96,66 @@ export const deleteMessage = async (req, res) => {
   }
 };
 
-export const getMessagesSince = async (req, res) => {
+// Server-Sent Events stream for new messages between two users
+export const streamMessages = async (req, res) => {
   try {
     const { id: userToChatId } = req.params;
-    const { since } = req.query;
     const myId = req.user._id;
 
-    const SINCE_TS = since ? new Date(parseInt(since)) : null;
-    const TIMEOUT_MS = 25000; // long-poll timeout (~25s)
-    const POLL_INTERVAL_MS = 1500; // check every 1.5s
-    const endTime = Date.now() + TIMEOUT_MS;
+    // Minimal SSE headers and initial comment
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.write(": connected\n\n");
 
-    let intervalId;
-    let finished = false;
+    let closed = false;
+    let lastSinceMs = req.query.since ? Number(req.query.since) : Date.now();
 
-    const buildQuery = () => {
-      const base = {
-        $or: [
-          { senderId: myId, receiverId: userToChatId },
-          { senderId: userToChatId, receiverId: myId },
-        ],
-      };
-      if (SINCE_TS) {
-        base.createdAt = { $gt: SINCE_TS };
-      }
-      return base;
+    const querySince = sinceMs => ({
+      $and: [
+        {
+          $or: [
+            { senderId: myId, receiverId: userToChatId },
+            { senderId: userToChatId, receiverId: myId },
+          ],
+        },
+        { createdAt: { $gt: new Date(sinceMs) } },
+      ],
+    });
+
+    const send = (event, data) => {
+      if (closed) return;
+      if (event) res.write(`event: ${event}\n`);
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
     };
 
-    const finalize = (payload) => {
-      if (finished) return;
-      finished = true;
-      if (intervalId) clearInterval(intervalId);
-      res.status(200).json(payload);
-    };
-
-    const checkAndRespond = async () => {
+    const pollMs = 1000;
+    const pingMs = 15000;
+    const pollId = setInterval(async () => {
       try {
-        const messages = await Message.find(buildQuery()).sort({
-          createdAt: 1,
-        });
-        if (messages.length > 0) {
-          return finalize({
-            messages,
-            timestamp: Date.now(),
-            hasNewMessages: true,
-          });
+        const messages = await Message.find(querySince(lastSinceMs)).sort({ createdAt: 1 });
+        if (messages.length) {
+          lastSinceMs = new Date(messages[messages.length - 1].createdAt).getTime();
+          send("messages", { messages, timestamp: Date.now() });
         }
-        if (Date.now() >= endTime) {
-          return finalize({
-            messages: [],
-            timestamp: Date.now(),
-            hasNewMessages: false,
-          });
-        }
-      } catch (err) {
-        if (!finished) {
-          finished = true;
-          if (intervalId) clearInterval(intervalId);
-          console.log("Error in getMessagesSince controller: ", err.message);
-          return res.status(500).json({ error: "Internal server error" });
-        }
+      } catch (e) {
+        send("error", { message: "Internal server error" });
       }
-    };
+    }, pollMs);
 
-    // If no since provided, return immediately (initial sync)
-    if (!SINCE_TS) {
-      const messages = await Message.find(buildQuery()).sort({ createdAt: 1 });
-      return res.status(200).json({
-        messages,
-        timestamp: Date.now(),
-        hasNewMessages: messages.length > 0,
-      });
-    }
+    const pingId = setInterval(() => res.write(": ping\n\n"), pingMs);
 
-    // First immediate check, then interval
-    await checkAndRespond();
-    if (!finished) {
-      intervalId = setInterval(checkAndRespond, POLL_INTERVAL_MS);
-    }
-
-    // Cleanup if client disconnects
     req.on("close", () => {
-      if (!finished) {
-        finished = true;
-        if (intervalId) clearInterval(intervalId);
-      }
+      if (closed) return;
+      closed = true;
+      clearInterval(pollId);
+      clearInterval(pingId);
     });
   } catch (error) {
-    console.log("Error in getMessagesSince controller: ", error.message);
-    res.status(500).json({ error: "Internal server error" });
+    console.log("Error in streamMessages controller: ", error.message);
+    // In SSE, headers might have been sent; best-effort JSON fallback
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Internal server error" });
+    }
   }
 };

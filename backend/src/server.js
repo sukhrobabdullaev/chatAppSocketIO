@@ -2,6 +2,7 @@ import express from "express";
 import dotenv from "dotenv";
 import cookieParser from "cookie-parser";
 import cors from "cors";
+import { createServer } from "http";
 // import path from "path";
 
 import { connectDB } from "./lib/db.js";
@@ -24,7 +25,7 @@ app.use(
   cors({
     origin: "http://localhost:5173",
     credentials: true,
-  })
+  }),
 );
 
 // if (process.env.NODE_ENV === "production") {
@@ -52,7 +53,10 @@ app.get("/health", (req, res) => {
   });
 });
 
-app.listen(PORT, () => {
+// Create HTTP server and attach Socket.IO
+const server = createServer(app);
+
+server.listen(PORT, () => {
   console.log("server is running on PORT:" + PORT);
   connectDB();
 });

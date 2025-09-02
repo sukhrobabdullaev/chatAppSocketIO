@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import toast from "react-hot-toast";
 import { axiosInstance } from "../lib/axios";
+// WebSocket client removed
 
 export const useChatStore = create((set, get) => ({
   messages: [],
@@ -8,14 +9,12 @@ export const useChatStore = create((set, get) => ({
   selectedUser: null,
   isUsersLoading: false,
   isMessagesLoading: false,
-  pollingInterval: null,
-  lastPollTimestamp: null,
-  isPolling: false,
-  pollingConfig: {
-    enabled: true,
-    intervalMs: 3000,
-    maxRetries: 3,
+  sse: {
+    eventSource: null,
+    lastTimestamp: null,
+    isConnected: false,
   },
+  // WebSocket state removed
 
   getUsers: async () => {
     set({ isUsersLoading: true });
@@ -29,11 +28,11 @@ export const useChatStore = create((set, get) => ({
     }
   },
 
-  getMessages: async (userId) => {
+  getMessages: async userId => {
     set({ isMessagesLoading: true });
     try {
       const res = await axiosInstance.get(`/messages/${userId}`);
-      set({ messages: res.data, lastPollTimestamp: Date.now() });
+      set({ messages: res.data, sse: { ...get().sse, lastTimestamp: Date.now() } });
     } catch (error) {
       toast.error(error.response.data.message);
     } finally {
@@ -41,89 +40,64 @@ export const useChatStore = create((set, get) => ({
     }
   },
 
-  // Poll for new messages
-  pollForMessages: async (userId) => {
-    const { lastPollTimestamp, pollingConfig } = get();
-    if (!pollingConfig.enabled) return;
-
-    try {
-      const res = await axiosInstance.get(`/messages/${userId}/poll`, {
-        params: { since: lastPollTimestamp },
-      });
-
-      if (res.data.messages?.length) {
-        const { messages } = get();
-        const newMessages = res.data.messages.filter(
-          (newMsg) =>
-            !messages.some((existingMsg) => existingMsg._id === newMsg._id)
-        );
-
-        if (newMessages.length > 0) {
-          set({ messages: [...messages, ...newMessages] });
-        }
-      }
-
-      // Always update lastPollTimestamp with server time
-      set({ lastPollTimestamp: res.data.timestamp });
-    } catch (error) {
-      console.error("Error polling for messages:", error);
-    }
-  },
-
-  // Start polling for messages
-  startPolling: (userId) => {
-    const { stopPolling, pollingConfig } = get();
+  // Use SSE for new messages (method name kept for component compatibility)
+  startPolling: userId => {
+    const { stopPolling, sse } = get();
     stopPolling();
-    if (!pollingConfig.enabled) return;
 
-    // Long-poll loop
-    let aborted = false;
+    const baseUrl = import.meta.env.MODE === "development" ? "http://localhost:3000/api/v1" : "/api/v1";
+    const since = sse.lastTimestamp || Date.now();
+    const url = `${baseUrl}/messages/${userId}/stream?since=${since}`;
 
-    const loop = async () => {
-      if (aborted) return;
-      await get().pollForMessages(userId);
-      if (aborted) return;
-      // Immediately start next long poll
-      loop();
+    const es = new EventSource(url, { withCredentials: true });
+
+    es.onopen = () => {
+      set({ sse: { ...get().sse, isConnected: true, eventSource: es } });
     };
 
-    // Mark as polling and kick off the loop
-    set({ isPolling: true, lastPollTimestamp: Date.now() });
-    // Store a stopper function in pollingInterval for compatibility
-    const stopper = () => {
-      aborted = true;
+    es.addEventListener("messages", ev => {
+      try {
+        const { messages, timestamp } = JSON.parse(ev.data);
+        if (Array.isArray(messages) && messages.length) {
+          const current = get().messages;
+          const incoming = messages;
+          const deduped = incoming.filter(m => !current.some(e => e._id === m._id));
+          if (deduped.length) set({ messages: [...current, ...deduped] });
+        }
+        if (timestamp) set({ sse: { ...get().sse, lastTimestamp: timestamp } });
+      } catch (_) {}
+    });
+
+    es.onerror = () => {
+      set({ sse: { ...get().sse, isConnected: false } });
     };
-    set({ pollingInterval: stopper });
-    loop();
+
+    set({ sse: { ...get().sse, eventSource: es, isConnected: false } });
   },
 
-  // Stop polling for messages
   stopPolling: () => {
-    const { pollingInterval } = get();
-    if (typeof pollingInterval === "function") {
-      pollingInterval();
+    const { sse } = get();
+    if (sse.eventSource && typeof sse.eventSource.close === "function") {
+      sse.eventSource.close();
     }
-    set({ pollingInterval: null, isPolling: false });
+    set({ sse: { eventSource: null, lastTimestamp: sse.lastTimestamp, isConnected: false } });
   },
 
-  sendMessage: async (messageData) => {
+  sendMessage: async messageData => {
     const { selectedUser, messages } = get();
     try {
-      const res = await axiosInstance.post(
-        `/messages/send/${selectedUser._id}`,
-        messageData
-      );
+      const res = await axiosInstance.post(`/messages/send/${selectedUser._id}`, messageData);
       set({ messages: [...messages, res.data] });
     } catch (error) {
       toast.error(error.response.data.message);
     }
   },
 
-  deleteMessage: async (messageId) => {
+  deleteMessage: async messageId => {
     try {
       await axiosInstance.delete(`/messages/${messageId}`);
       set({
-        messages: get().messages.filter((message) => message._id !== messageId),
+        messages: get().messages.filter(message => message._id !== messageId),
       });
       toast.success("Message deleted successfully");
     } catch (error) {
@@ -131,17 +105,12 @@ export const useChatStore = create((set, get) => ({
     }
   },
 
-  setSelectedUser: (selectedUser) => {
+  setSelectedUser: selectedUser => {
     const { stopPolling, startPolling } = get();
-
-    // Stop polling for previous user
     stopPolling();
-
-    // Start polling for new user if selected and polling is enabled
-    if (selectedUser && get().pollingConfig.enabled) {
-      startPolling(selectedUser._id);
-    }
-
+    if (selectedUser) startPolling(selectedUser._id);
     set({ selectedUser });
   },
+
+  // WebSocket methods removed
 }));
