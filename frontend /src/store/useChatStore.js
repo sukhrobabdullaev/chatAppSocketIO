@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import toast from "react-hot-toast";
 import { axiosInstance } from "../lib/axios";
-// WebSocket client removed
+import { createSocket } from "../lib/socket";
 
 export const useChatStore = create((set, get) => ({
   messages: [],
@@ -9,9 +9,9 @@ export const useChatStore = create((set, get) => ({
   selectedUser: null,
   isUsersLoading: false,
   isMessagesLoading: false,
-  sse: {
-    eventSource: null,
-    lastTimestamp: null,
+  // SSE removed in favor of WebSocket
+  ws: {
+    socket: null,
     isConnected: false,
   },
   // WebSocket state removed
@@ -40,47 +40,54 @@ export const useChatStore = create((set, get) => ({
     }
   },
 
-  // Use SSE for new messages (method name kept for component compatibility)
-  startPolling: userId => {
-    const { stopPolling, sse } = get();
-    stopPolling();
-
-    const baseUrl = import.meta.env.MODE === "development" ? "http://localhost:3000/api/v1" : "/api/v1";
-    const since = sse.lastTimestamp || Date.now();
-    const url = `${baseUrl}/messages/${userId}/stream?since=${since}`;
-
-    const es = new EventSource(url, { withCredentials: true });
-
-    es.onopen = () => {
-      set({ sse: { ...get().sse, isConnected: true, eventSource: es } });
-    };
-
-    es.addEventListener("messages", ev => {
+  // Use WebSocket instead (preserve names for components)
+  startPolling: async () => {
+    const { ws } = get();
+    if (ws.socket) return;
+    let attempts = 0;
+    const connect = async () => {
+      let token;
       try {
-        const { messages, timestamp } = JSON.parse(ev.data);
-        if (Array.isArray(messages) && messages.length) {
-          const current = get().messages;
-          const incoming = messages;
-          const deduped = incoming.filter(m => !current.some(e => e._id === m._id));
-          if (deduped.length) set({ messages: [...current, ...deduped] });
-        }
-        if (timestamp) set({ sse: { ...get().sse, lastTimestamp: timestamp } });
+        const res = await axiosInstance.get("/auth/ws-token");
+        token = res.data?.token;
       } catch (_) {}
-    });
+      const socket = createSocket(token);
 
-    es.onerror = () => {
-      set({ sse: { ...get().sse, isConnected: false } });
+      socket.onopen = () => {
+        attempts = 0;
+        set({ ws: { socket, isConnected: true } });
+      };
+      socket.onclose = () => {
+        set({ ws: { socket: null, isConnected: false } });
+        // simple backoff reconnect
+        const timeout = Math.min(1000 * 2 ** attempts, 15000);
+        attempts += 1;
+        setTimeout(connect, timeout);
+      };
+      socket.onerror = () => set({ ws: { socket, isConnected: false } });
+
+      socket.onmessage = evt => {
+        try {
+          const msg = JSON.parse(evt.data);
+          if (msg.type === "message:new" && msg.payload) {
+            const current = get().messages;
+            if (!current.some(m => m._id === msg.payload._id)) {
+              set({ messages: [...current, msg.payload] });
+            }
+          }
+        } catch (_) {}
+      };
+
+      set({ ws: { socket, isConnected: false } });
     };
 
-    set({ sse: { ...get().sse, eventSource: es, isConnected: false } });
+    connect();
   },
 
   stopPolling: () => {
-    const { sse } = get();
-    if (sse.eventSource && typeof sse.eventSource.close === "function") {
-      sse.eventSource.close();
-    }
-    set({ sse: { eventSource: null, lastTimestamp: sse.lastTimestamp, isConnected: false } });
+    const { ws } = get();
+    if (ws.socket) ws.socket.close();
+    set({ ws: { socket: null, isConnected: false } });
   },
 
   sendMessage: async messageData => {
@@ -108,9 +115,9 @@ export const useChatStore = create((set, get) => ({
   setSelectedUser: selectedUser => {
     const { stopPolling, startPolling } = get();
     stopPolling();
-    if (selectedUser) startPolling(selectedUser._id);
+    if (selectedUser) startPolling();
     set({ selectedUser });
   },
 
-  // WebSocket methods removed
+  // Keep sending via HTTP only for clarity
 }));

@@ -2,6 +2,7 @@ import { generateToken } from "../lib/utils.js";
 import User from "../models/user.model.js";
 import bcrypt from "bcryptjs";
 import cloudinary from "../lib/cloudinary.js";
+import jwt from "jsonwebtoken";
 
 export const signup = async (req, res) => {
   const { fullName, email, password } = req.body;
@@ -11,9 +12,7 @@ export const signup = async (req, res) => {
     }
 
     if (password.length < 6) {
-      return res
-        .status(400)
-        .json({ message: "Password must be at least 6 characters" });
+      return res.status(400).json({ message: "Password must be at least 6 characters" });
     }
 
     const user = await User.findOne({ email });
@@ -98,11 +97,9 @@ export const updateProfile = async (req, res) => {
 
     // Validate base64 image format
     if (!profilePic.startsWith("data:image/")) {
-      return res
-        .status(400)
-        .json({
-          message: "Invalid image format. Please provide a valid base64 image.",
-        });
+      return res.status(400).json({
+        message: "Invalid image format. Please provide a valid base64 image.",
+      });
     }
 
     console.log("Uploading to Cloudinary...");
@@ -119,7 +116,7 @@ export const updateProfile = async (req, res) => {
     const updatedUser = await User.findByIdAndUpdate(
       userId,
       { profilePic: uploadResponse.secure_url },
-      { new: true }
+      { new: true },
     ).select("-password"); // Don't return password
 
     res.status(200).json({
@@ -136,17 +133,13 @@ export const updateProfile = async (req, res) => {
 
     // Handle specific Cloudinary errors
     if (error.message.includes("Invalid image file")) {
-      return res
-        .status(400)
-        .json({ message: "Invalid image file. Please upload a valid image." });
+      return res.status(400).json({ message: "Invalid image file. Please upload a valid image." });
     }
 
     if (error.message.includes("File size too large")) {
-      return res
-        .status(400)
-        .json({
-          message: "Image file is too large. Please upload a smaller image.",
-        });
+      return res.status(400).json({
+        message: "Image file is too large. Please upload a smaller image.",
+      });
     }
 
     res.status(500).json({ message: "Internal server error" });
@@ -158,6 +151,16 @@ export const checkAuth = (req, res) => {
     res.status(200).json(req.user);
   } catch (error) {
     console.log("Error in checkAuth controller", error.message);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
+// Short-lived WS token (fallback when cookies are not sent on WS upgrade)
+export const getWsToken = (req, res) => {
+  try {
+    const token = jwt.sign({ userId: req.user._id }, process.env.JWT_SECRET, { expiresIn: "5m" });
+    res.json({ token });
+  } catch (error) {
     res.status(500).json({ message: "Internal Server Error" });
   }
 };

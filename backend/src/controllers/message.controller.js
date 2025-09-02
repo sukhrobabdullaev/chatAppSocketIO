@@ -2,6 +2,7 @@ import User from "../models/user.model.js";
 import Message from "../models/message.model.js";
 
 import cloudinary from "../lib/cloudinary.js";
+import { broadcastMessage } from "../lib/ws.js";
 
 export const getUsersForSidebar = async (req, res) => {
   try {
@@ -57,7 +58,8 @@ export const sendMessage = async (req, res) => {
     });
 
     await newMessage.save();
-
+    // Broadcast via WS so real-time works when sending through HTTP
+    broadcastMessage(newMessage);
     res.status(201).json(newMessage);
   } catch (error) {
     console.log("Error in sendMessage controller: ", error.message);
@@ -93,69 +95,5 @@ export const deleteMessage = async (req, res) => {
   } catch (error) {
     console.log("Error in deleteMessage controller: ", error.message);
     res.status(500).json({ error: "Internal server error" });
-  }
-};
-
-// Server-Sent Events stream for new messages between two users
-export const streamMessages = async (req, res) => {
-  try {
-    const { id: userToChatId } = req.params;
-    const myId = req.user._id;
-
-    // Minimal SSE headers and initial comment
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("Connection", "keep-alive");
-    res.write(": connected\n\n");
-
-    let closed = false;
-    let lastSinceMs = req.query.since ? Number(req.query.since) : Date.now();
-
-    const querySince = sinceMs => ({
-      $and: [
-        {
-          $or: [
-            { senderId: myId, receiverId: userToChatId },
-            { senderId: userToChatId, receiverId: myId },
-          ],
-        },
-        { createdAt: { $gt: new Date(sinceMs) } },
-      ],
-    });
-
-    const send = (event, data) => {
-      if (closed) return;
-      if (event) res.write(`event: ${event}\n`);
-      res.write(`data: ${JSON.stringify(data)}\n\n`);
-    };
-
-    const pollMs = 1000;
-    const pingMs = 15000;
-    const pollId = setInterval(async () => {
-      try {
-        const messages = await Message.find(querySince(lastSinceMs)).sort({ createdAt: 1 });
-        if (messages.length) {
-          lastSinceMs = new Date(messages[messages.length - 1].createdAt).getTime();
-          send("messages", { messages, timestamp: Date.now() });
-        }
-      } catch (e) {
-        send("error", { message: "Internal server error" });
-      }
-    }, pollMs);
-
-    const pingId = setInterval(() => res.write(": ping\n\n"), pingMs);
-
-    req.on("close", () => {
-      if (closed) return;
-      closed = true;
-      clearInterval(pollId);
-      clearInterval(pingId);
-    });
-  } catch (error) {
-    console.log("Error in streamMessages controller: ", error.message);
-    // In SSE, headers might have been sent; best-effort JSON fallback
-    if (!res.headersSent) {
-      res.status(500).json({ error: "Internal server error" });
-    }
   }
 };
