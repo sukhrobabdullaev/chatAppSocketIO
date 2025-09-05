@@ -3,7 +3,6 @@ import dotenv from "dotenv";
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import { createServer } from "http";
-import { setupWebSocket } from "./lib/ws.js";
 
 import { connectDB } from "./lib/db.js";
 
@@ -43,9 +42,7 @@ app.get("/health", (req, res) => {
   });
 });
 
-// Create HTTP server and attach Socket.IO
 const server = createServer(app);
-setupWebSocket(server);
 
 server.listen(PORT, () => {
   console.log("server is running on PORT:" + PORT);

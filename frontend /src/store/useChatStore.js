@@ -1,7 +1,6 @@
 import { create } from "zustand";
 import toast from "react-hot-toast";
 import { axiosInstance } from "../lib/axios";
-import { createSocket } from "../lib/socket";
 
 export const useChatStore = create((set, get) => ({
   messages: [],
@@ -9,12 +8,6 @@ export const useChatStore = create((set, get) => ({
   selectedUser: null,
   isUsersLoading: false,
   isMessagesLoading: false,
-  // SSE removed in favor of WebSocket
-  ws: {
-    socket: null,
-    isConnected: false,
-  },
-  // WebSocket state removed
 
   getUsers: async () => {
     set({ isUsersLoading: true });
@@ -32,62 +25,12 @@ export const useChatStore = create((set, get) => ({
     set({ isMessagesLoading: true });
     try {
       const res = await axiosInstance.get(`/messages/${userId}`);
-      set({ messages: res.data, sse: { ...get().sse, lastTimestamp: Date.now() } });
+      set({ messages: res.data });
     } catch (error) {
       toast.error(error.response.data.message);
     } finally {
       set({ isMessagesLoading: false });
     }
-  },
-
-  // Use WebSocket instead (preserve names for components)
-  startPolling: async () => {
-    const { ws } = get();
-    if (ws.socket) return;
-    let attempts = 0;
-    const connect = async () => {
-      let token;
-      try {
-        const res = await axiosInstance.get("/auth/ws-token");
-        token = res.data?.token;
-      } catch (_) {}
-      const socket = createSocket(token);
-
-      socket.onopen = () => {
-        attempts = 0;
-        set({ ws: { socket, isConnected: true } });
-      };
-      socket.onclose = () => {
-        set({ ws: { socket: null, isConnected: false } });
-        // simple backoff reconnect
-        const timeout = Math.min(1000 * 2 ** attempts, 15000);
-        attempts += 1;
-        setTimeout(connect, timeout);
-      };
-      socket.onerror = () => set({ ws: { socket, isConnected: false } });
-
-      socket.onmessage = evt => {
-        try {
-          const msg = JSON.parse(evt.data);
-          if (msg.type === "message:new" && msg.payload) {
-            const current = get().messages;
-            if (!current.some(m => m._id === msg.payload._id)) {
-              set({ messages: [...current, msg.payload] });
-            }
-          }
-        } catch (_) {}
-      };
-
-      set({ ws: { socket, isConnected: false } });
-    };
-
-    connect();
-  },
-
-  stopPolling: () => {
-    const { ws } = get();
-    if (ws.socket) ws.socket.close();
-    set({ ws: { socket: null, isConnected: false } });
   },
 
   sendMessage: async messageData => {
@@ -113,11 +56,6 @@ export const useChatStore = create((set, get) => ({
   },
 
   setSelectedUser: selectedUser => {
-    const { stopPolling, startPolling } = get();
-    stopPolling();
-    if (selectedUser) startPolling();
     set({ selectedUser });
   },
-
-  // Keep sending via HTTP only for clarity
 }));
