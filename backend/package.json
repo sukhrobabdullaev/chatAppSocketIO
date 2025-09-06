@@ -11,6 +11,7 @@
   "author": "Sukhrob Abdullaev",
   "license": "MIT",
   "dependencies": {
+    "socket.io": "^4.8.1",
     "axios": "^1.11.0",
     "bcryptjs": "^3.0.2",
     "cheerio": "^1.1.2",
