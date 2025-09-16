@@ -1,0 +1,68 @@
+---
+globs: backend/src/**/*.js
+description: Express/Node coding conventions for backend JS files
+---
+
+# Express/Node Conventions
+
+## Imports and Module Style
+
+- Use ES Modules (`type: module`): `import ... from '...'`
+- Group imports: stdlib, third-party, local
+
+## Route Organization
+
+- Define routes in `src/routes/*.route.js`
+- Mount under `/api/v1/<resource>` in [server.js](mdc:backend/src/server.js)
+- Keep routes thin; delegate to controllers
+- Use versioning discipline (v1, v2) and avoid breaking changes
+
+## Controllers
+
+- One export per handler (named exports)
+- Signature: `async (req, res, next)`
+- Validate inputs; early return on errors
+- On failure, call `next(err)` or return standardized error response
+- Use DTOs/serializers to shape responses and hide internal fields
+
+## Middleware
+
+- Auth: use `protectRoute` for protected endpoints
+- Global errors: ensure `globalErrorHandler` is the last middleware
+- Add request-id and timing middleware for tracing
+
+## Async Patterns
+
+- Prefer `async/await` with `try/catch`
+- Do not swallow errors; include context in logs
+- Wrap handlers with an async wrapper to avoid duplicated try/catch where useful
+
+## Responses
+
+- Use consistent JSON shapes. Example:
+
+```js
+res.status(200).json(data)
+```
+
+- Avoid sending raw DB records without sanitization
+- Support ETag/If-None-Match for cacheable GETs when applicable
+
+## Mongoose
+
+- Use lean reads when write access not needed: `.lean()`
+- Project out sensitive fields: `.select('-password')`
+- Define compound indexes for frequent filters/sorts
+- Use schema-level validators and virtuals judiciously
+
+## Socket.IO (when used)
+
+- Apply `io.use(socketAuth)` before `io.on('connection')`
+- Join user room with `socket.userId`
+- For 1-1 rooms use: `[u1, u2].sort().join('-')`
+
+## Style
+
+- Early returns over nesting
+- Small functions with clear names
+- No commented-out code in committed files

@@ -1,0 +1,49 @@
+---
+globs: backend/src/**/*.js
+description: API design, validation, and error-handling guidance
+---
+
+# API & Error Handling Guidance
+
+## Validation
+
+- Validate request bodies, params, and queries at the route/controller edge
+- Reject early with `400` and a descriptive message
+- Prefer schema validation (e.g., zod/yup/joi) with centralized error mapping
+
+## Auth
+
+- Protected routes use `protectRoute` and read JWT from cookies
+- For websockets, use `socketAuth`
+
+## Errors
+
+- Use `try/catch` in controllers. On error, either:
+  - `next(err)` to delegate to `globalErrorHandler`, or
+  - return `res.status(code).json({ message })`
+- Never expose stack traces in production responses
+- Use an error taxonomy (e.g., `AppError`) with `code`, `httpStatus`, `isOperational`
+- Map known errors (auth, validation, notFound, conflict) to stable http statuses
+
+## Global Error Handler
+
+- Final middleware: [globalErrorHandler.js](mdc:backend/src/middlewares/globalErrorHandler.js)
+- Standardize unknown errors to `500` with generic message
+- Log with request-id, path, method, userId when available
+
+## Status Codes
+
+- 200/201 for success
+- 400 for bad inputs
+- 401 for unauthenticated
+- 403 for unauthorized
+- 404 for not found
+- 409 for conflict
+- 500 for server errors
+- 422 for semantic validation errors (optional)
+
+## Link Preview and Messaging
+
+- Link preview uses Cheerio; sanitize external input
+- Messaging must ensure user authorization before access
+- For Socket.IO, propagate errors via `socket.emit('error', { message })` and server logs

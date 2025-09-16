@@ -1,0 +1,48 @@
+---
+globs: backend/src/**/*.js
+description: Observability, security, performance, and ops guidance for the backend
+---
+
+# Observability & Ops
+
+## Logging
+
+- Use a structured logger (e.g., pino/winston)
+- Include: timestamp, level, message, request-id, path, method, userId (when available)
+- Mask sensitive data (tokens, passwords)
+- Log at INFO for normal ops, WARN for recoverable issues, ERROR for failures
+
+## Tracing & Metrics
+
+- Expose `/health` and `/metrics` (if using Prometheus)
+- Track counters for requests, errors, and latencies per route
+- For Socket.IO, track connects/disconnects, rooms joined, emitted events
+
+## Security
+
+- Enable Helmet and rate-limiting
+- CORS with allow-listed origins
+- Validate and sanitize all inputs
+- Keep dependencies updated; audit regularly
+
+## Performance
+
+- Use compression when payload sizes are large and CPU permits
+- Cache static config and reference data where appropriate
+- Use MongoDB indexes; monitor slow queries
+
+## Startup/Shutdown
+
+- Graceful shutdown: stop accepting new requests, close DB and socket server
+- Handle SIGINT/SIGTERM; set timeouts
+
+## Configuration & Secrets
+
+- Use env vars; provide `.env.example`
+- Do not log secrets; rotate keys regularly
+
+## Deployments
+
+- Containerize with multi-stage Docker builds
+- Health probes (readiness/liveness)
+- Blue/green or rolling deployments; ensure backward-compatible schema changes

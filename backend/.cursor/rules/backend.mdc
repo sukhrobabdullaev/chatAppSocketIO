@@ -1,0 +1,101 @@
+description: Core backend project structure and guidance for this Express-based app alwaysApply: true
+
+---
+
+# Backend Project Structure and Conventions
+
+This rule explains how the backend is organized and how to navigate it. It always applies.
+
+## Tech Stack
+
+- Node.js (ES Modules) with Express.js
+- MongoDB via Mongoose
+- Auth with JWT cookies
+- Optional real-time via Socket.IO
+
+## Entry Points
+
+- Server entry: [src/server.js](mdc:backend/src/server.js)
+- Database connection: [src/lib/db.js](mdc:backend/src/lib/db.js)
+
+## App Modules
+
+- Routes: [src/routes](mdc:backend/src/routes/)
+  - `auth.route.js`, `message.route.js`, `linkPreview.route.js`
+- Controllers: [src/controllers](mdc:backend/src/controllers/)
+  - `auth.controller.js`, `message.controller.js`, `linkPreview.controller.js`
+- Middlewares: [src/middlewares](mdc:backend/src/middlewares/)
+  - `auth.middleware.js`, `globalErrorHandler.js`, `socketAuth.middleware.js`
+- Models: [src/models](mdc:backend/src/models/)
+  - `user.model.js`, `message.model.js`
+- Lib/Utilities: [src/lib](mdc:backend/src/lib/)
+  - `utils.js`, `cloudinary.js`, `db.js`
+
+## Server Setup (Required Order)
+
+1. Load env (`dotenv`)
+2. Create `express` app
+3. Apply core middlewares (JSON, URL-encoded, cookies, CORS, request id)
+4. Attach structured logger
+5. Mount routes under `/api/v1/*`
+6. Health endpoints `/` and `/health`
+7. Central error handler last
+8. If using Socket.IO:
+   - Create HTTP server via `createServer(app)`
+   - Initialize `SocketIOServer`
+   - `io.use(socketAuth)` BEFORE `io.on("connection", ...)`
+   - Start server with `server.listen`
+
+## Coding Patterns
+
+- Use early returns; avoid deep nesting
+- Controllers thin; business logic in services; persistence in repositories
+- Validate inputs at boundaries with a schema library
+- Async/await with try/catch in controllers; forward to error handler
+- Feature modules should be cohesive: route -> controller -> service -> repo
+
+## Responses
+
+- Successful JSON: `{ data, message }` or controller-specific shape
+- Errors are centralized by `globalErrorHandler`
+
+## Security
+
+- Sanitize and validate input; enforce payload size limits
+- Use Helmet, rate limiting, and CORS allow-list
+- Store JWT in HttpOnly, Secure cookies; rotate secrets
+- Never log secrets or PII; mask sensitive fields
+
+## Data
+
+- Use Mongoose schemas with strict mode
+- Add indexes for high-cardinality lookups; keep an index plan document
+- Use transactions for multi-document invariants
+
+## Configuration
+
+- Twelve-Factor: all secrets/config via env; provide `.env.example`
+- Prefer typed config loader with validation (e.g., zod/yup)
+
+## Testing
+
+- Unit tests for services and utilities
+- Integration tests for controllers/routes with an in-memory Mongo or test db
+- Contract tests for external integrations (e.g., Cloudinary)
+
+## CI/CD
+
+- Lint, type-check, test on PR
+- Build and produce a Docker image with multi-stage build
+- Run DB migrations on deploy; use readiness/liveness probes
+
+## Environment
+
+- Required env: `PORT`, `MONGO_URI`, `JWT_SECRET`, any Cloudinary keys
+- Never commit secrets
+
+## Real-time Notes (Socket.IO)
+
+- Authenticate sockets with `socketAuth` (token from `handshake.auth.token` or `jwt` cookie)
+- Join user room by `socket.userId`
+- Room name for 1-1 chat: sorted user ids joined with `-`
